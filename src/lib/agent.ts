@@ -66,24 +66,34 @@ export async function runAgent(
     .filter((m, i) => m.role === 'assistant' || i === recent.length - 1 || recent[i + 1].role === 'assistant')
     .map((m) => ({ role: m.role, content: m.content }));
 
-  const instructions = buildInstructions(formatLocal(now, input.tzOffsetMinutes), memory.text);
+  const nowLocal = formatLocal(now, input.tzOffsetMinutes);
+  const instructions = buildInstructions(nowLocal, memory.text, nowLocal.split(', ')[0]);
   const recallOnly = isRecallOnly(input.message);
 
-  let answer = '';
-  let produced = false; // has any model started answering or searching yet?
-  const sources = new Map<string, Source>(); // every result, keyed by URL
-  const topPerQuery = new Map<string, Source>(); // the best result for each query
+  let answer = ''; // answer text already sent to the browser
+  let searched = false; // has the current attempt searched?
+  let failure = ''; // why the last attempt failed, if it did
+  let sources = new Map<string, Source>(); // every result, keyed by URL so nothing is listed twice
+  let topPerQuery = new Map<string, Source>(); // the best result for each query
 
   if (models.length === 0) {
     send({ type: 'error', message: 'No model key is set. Add GROQ_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY to .env.local.' });
     return;
   }
 
-  // 4) Try each model in order. Move to the next one only if this one fails
-  //    or stays silent BEFORE it has produced anything.
+  // 4) Try each model in order. Move to the next one if this one fails or stays silent,
+  //    as long as NO answer text has reached the browser yet. A search does not block this:
+  //    the next model starts the question again, and repeated searches come from the 10-minute cache.
+  //    A rate limit (HTTP 429) is a failure like any other: maxRetries is 0, so we never wait on the same model.
   let failedName = ''; // the model that failed before this one, if any
   for (const candidate of models) {
-    step('think', 'Thinking', false, failedName ? `${failedName} did not respond, trying ${candidate.name}` : candidate.name);
+    searched = false;
+    step(
+      'think',
+      failedName ? 'Thinking (switched to backup)' : 'Thinking',
+      false,
+      failedName ? `${failedName} failed, trying ${candidate.name}` : candidate.name,
+    );
     const abort = new AbortController();
     let timer = setTimeout(() => abort.abort(), silenceLimitMs);
     const stillAlive = () => {
@@ -110,6 +120,9 @@ export async function runAgent(
         },
         toolChoice: recallOnly ? 'none' : 'auto',
         stopWhen: isStepCount(5),
+        // Errors also arrive as 'error' parts below, where we log one line and switch models.
+        // Without this the SDK prints a full stack trace for every failure.
+        onError: () => {},
       });
 
       for await (const part of result.stream) {
@@ -122,11 +135,9 @@ export async function runAgent(
             finish('read');
             step('write', 'Writing the answer', false);
           }
-          produced = true;
           answer += part.text;
           send({ type: 'text', delta: part.text });
         } else if (part.type === 'tool-call') {
-          produced = true;
           const { queries } = part.input as { queries: string[] };
           log('search requested: ' + queries.join(' | '));
           finish('think');
@@ -134,6 +145,12 @@ export async function runAgent(
           step('search', 'Searching the web', false, queries.join(' · '));
         } else if (part.type === 'tool-result') {
           log('search finished');
+          // This attempt searched, so its sources replace any from a failed earlier attempt.
+          if (!searched) {
+            searched = true;
+            sources = new Map();
+            topPerQuery = new Map();
+          }
           const outcomes = part.output as SearchOutcome[];
           const found = outcomes.reduce((sum, outcome) => sum + outcome.results.length, 0);
           const searches = outcomes.length === 1 ? '1 search' : `${outcomes.length} searches at once`;
@@ -151,22 +168,31 @@ export async function runAgent(
 
       clearTimeout(timer);
       if (abort.signal.aborted) throw new Error('the model stayed silent for too long');
-      if (answer) break; // success: stop trying models
+      if (answer) {
+        failure = '';
+        break; // success: stop trying models
+      }
       throw new Error('the model returned no text');
     } catch (error) {
       clearTimeout(timer);
-      const reason = abort.signal.aborted ? 'the model stayed silent for too long' : error instanceof Error ? error.message : String(error);
-      log(`${candidate.name} failed: ${reason.slice(0, 120)}`);
+      failure = abort.signal.aborted ? 'the model stayed silent for too long' : error instanceof Error ? error.message : String(error);
+      log(`${candidate.name} failed: ${failure.slice(0, 120)}`);
       failedName = candidate.name;
-      if (produced) break; // it already started answering, so we cannot start over with another model
+      // Close this attempt's running steps, so nothing spins forever.
+      for (const key of ['think', 'search', 'read']) finish(key);
+      if (answer) break; // answer text already reached the browser, so we cannot start over with another model
     }
   }
 
   // 5) Save and finish. Close any step that is still running.
-  if (!produced) step('think', 'Thinking', true, 'No model responded');
+  if (!answer && failedName) step('think', 'Thinking', true, 'No model responded');
   for (const key of [...open.keys()]) finish(key);
 
-  if (answer) {
+  if (answer && failure) {
+    // The model stopped part-way through its answer. The partial text stays on screen,
+    // but it is not saved, so it is never recalled later as if it were a full answer.
+    send({ type: 'error', message: 'The answer was cut off because the AI model stopped responding. Please try again.' });
+  } else if (answer) {
     const all = [...sources.values()];
     const cited = all.filter((s) => answer.includes(s.url));
     const shown = cited.length ? cited : [...topPerQuery.values()];

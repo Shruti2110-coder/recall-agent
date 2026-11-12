@@ -22,13 +22,18 @@ Put these in `.env.local`. Never commit that file.
 
 | Variable | Required? | What it is for |
 |---|---|---|
-| `GROQ_API_KEY` | One of these two | Groq, the first model tried (fast) |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | One of these two | Google Gemini, the backup model |
+| `GROQ_API_KEY` | One of these two | Groq, the first model tried by default (fast) |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | One of these two | Google Gemini, the backup model by default |
 | `TAVILY_API_KEY` | Yes | Web search |
 | `GROQ_MODEL_ID` | No | Groq model, default `openai/gpt-oss-120b` |
 | `MODEL_ID` | No | Gemini model, default `gemini-3.5-flash-lite` |
+| `PRIMARY_MODEL` | No | `groq` (default) or `google`: which one answers first when both keys are set |
 
-If both model keys are set, Groq answers first. If it fails or stays silent for 15 seconds before saying anything, Gemini takes over.
+If both model keys are set, Groq answers first and Gemini is the backup. Set `PRIMARY_MODEL=google` to swap them.
+
+The backup takes over if the first model fails, hits its rate limit (HTTP 429) or stays silent for 15 seconds, as long as no answer text has appeared yet. This still works after a web search has started: the backup starts the question again, and repeated searches come straight from the 10-minute cache. A rate limit is never retried on the same model; it switches at once. Once answer text has appeared, the model is never switched: if it then stops, you keep the partial text, it is marked as failed, and it is not saved.
+
+Groq's model runs with reasoning set to `medium`. On `low` it was the fastest, but it sometimes got dates wrong or labelled a changed price as UNCHANGED. `medium` is a little slower and more careful. If accuracy still matters more than speed, use `PRIMARY_MODEL=google`.
 
 ## Try it with demo data
 
