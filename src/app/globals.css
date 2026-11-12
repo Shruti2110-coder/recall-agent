@@ -1,0 +1,1174 @@
+/* ---------- colours ---------- */
+
+:root {
+  /* Base colours: neutral greys, so any accent looks good. */
+  --paper: #fafafa;
+  --card: #ffffff;
+  --line: #e8e8ec;
+  --ink: #17171a;
+  --soft: #6b6b76;
+  --shadow: 0 1px 2px rgba(23, 23, 26, 0.04), 0 2px 8px rgba(23, 23, 26, 0.04);
+  --glass: rgba(255, 255, 255, 0.72); /* floating buttons */
+  --glass-blur: blur(12px);
+  --danger: #c0362c;
+  --knob: #ffffff;
+  --knob-shadow: rgba(0, 0, 0, 0.25);
+  --knob-icon: #6b6b76;
+
+  /* Badge colours keep their meaning and never follow the accent. */
+  --warn: #b45309;
+  --warn-soft: #fdf3e2;
+  --ok: #047857;
+  --ok-soft: #e1f5ec;
+  --unverified-bg: #f0f0f3;
+  --unverified-line: transparent;
+
+  /* The swatches in the colour picker. */
+  --blue: #3b82f6;
+  --violet: #8b5cf6;
+  --orange: #f97316;
+  --green: #10b981;
+  --mono-light: #17171a;
+  --mono-dark: #f2f2f5;
+
+  /* Accent (blue unless another is picked). Each accent theme below sets these three. */
+  --accent: var(--blue);
+  --accent-soft: rgba(59, 130, 246, 0.12);
+  --on-accent: #17171a;
+
+  /* Worked out from the accent: */
+  /* the accent mixed with the text colour, for links and small text, so it is readable on the page */
+  --accent-text: color-mix(in srgb, var(--accent) 60%, var(--ink));
+  /* a faint glow behind the welcome area */
+  --glow: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+[data-theme='dark'] {
+  --paper: #0e0e11;
+  --card: #17171c;
+  --line: #26262d;
+  --ink: #f2f2f5;
+  --soft: #9a9aa6;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --glass: rgba(23, 23, 28, 0.72);
+  --danger: #ff8a8a;
+  --knob-icon: #17171a;
+  --warn: #ffcf7a;
+  --warn-soft: rgba(255, 207, 122, 0.14);
+  --ok: #6ee7b7;
+  --ok-soft: rgba(110, 231, 183, 0.14);
+  --unverified-bg: transparent;
+  --unverified-line: rgba(154, 154, 166, 0.45);
+  --accent-soft: rgba(59, 130, 246, 0.2);
+  --accent-text: color-mix(in srgb, var(--accent) 80%, var(--ink));
+}
+
+/* ---------- accent themes (set by data-accent on <html>) ----------
+   --on-accent is whichever of near-black or white is easier to read on that colour. */
+
+[data-accent='blue'] {
+  --accent: var(--blue);
+  --accent-soft: rgba(59, 130, 246, 0.12);
+  --on-accent: #17171a; /* 4.9:1 (white would be only 3.7:1) */
+}
+
+[data-accent='violet'] {
+  --accent: var(--violet);
+  --accent-soft: rgba(139, 92, 246, 0.12);
+  --on-accent: #ffffff; /* 4.2:1 */
+}
+
+[data-accent='orange'] {
+  --accent: var(--orange);
+  --accent-soft: rgba(249, 115, 22, 0.12);
+  --on-accent: #17171a; /* 6.4:1 */
+}
+
+[data-accent='green'] {
+  --accent: var(--green);
+  --accent-soft: rgba(16, 185, 129, 0.12);
+  --on-accent: #17171a; /* 6.9:1 */
+}
+
+[data-accent='mono'] {
+  --accent: var(--mono-light);
+  --accent-soft: rgba(23, 23, 26, 0.08);
+  --on-accent: #ffffff; /* 17.9:1 */
+}
+
+/* Tints are a little stronger on a dark page. */
+[data-theme='dark'][data-accent='blue'] {
+  --accent-soft: rgba(59, 130, 246, 0.2);
+}
+
+[data-theme='dark'][data-accent='violet'] {
+  --accent-soft: rgba(139, 92, 246, 0.22);
+}
+
+[data-theme='dark'][data-accent='orange'] {
+  --accent-soft: rgba(249, 115, 22, 0.18);
+}
+
+[data-theme='dark'][data-accent='green'] {
+  --accent-soft: rgba(16, 185, 129, 0.18);
+}
+
+[data-theme='dark'][data-accent='mono'] {
+  --accent: var(--mono-dark);
+  --accent-soft: rgba(242, 242, 245, 0.12);
+  --on-accent: #17171a; /* 17.9:1 */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 15px/1.65 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+.app {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  height: 100vh;
+}
+
+.icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- history panel ---------- */
+
+.panel {
+  width: 0;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--card);
+  border-right: 1px solid transparent;
+  transition: width 0.25s ease, border-color 0.25s ease;
+}
+
+.panel.open {
+  width: 320px;
+  border-right-color: var(--line);
+}
+
+.panel-inner {
+  width: 320px;
+  height: 100%;
+  overflow-y: auto;
+  padding: 72px 14px 20px; /* room at the top for the floating history button */
+}
+
+.panel h2 {
+  margin: 0 0 16px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--soft);
+}
+
+.panel-empty {
+  color: var(--soft);
+  font-size: 14px;
+  margin-left: 6px;
+}
+
+.day {
+  margin-bottom: 18px;
+}
+
+.day-label {
+  font-size: 12px;
+  color: var(--soft);
+  margin: 0 0 4px 6px;
+}
+
+.item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s;
+}
+
+.item:hover {
+  background: var(--card);
+}
+
+.item.open {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+  white-space: normal;
+}
+
+.item-detail {
+  font-size: 13px;
+  padding: 6px 8px 12px;
+  animation: rise 0.2s ease-out both;
+}
+
+/* "Check again today" under an opened history answer. */
+.recheck {
+  display: inline-flex;
+  transition: opacity 0.15s, background-color 0.2s, color 0.2s;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.recheck .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.recheck:hover {
+  opacity: 0.8;
+}
+
+.recheck:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.recheck:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.item-time {
+  font-size: 11px;
+  color: var(--soft);
+  margin-bottom: 4px;
+}
+
+/* ---------- chat column ---------- */
+
+.chat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- floating controls (no top bar) ---------- */
+
+.float {
+  position: fixed;
+  top: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.float.left {
+  left: 16px;
+}
+
+.float.right {
+  right: 16px;
+}
+
+/* A round glass button with an icon. */
+.round {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--ink);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s, box-shadow 0.15s;
+}
+
+.round .icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* The history button's sidebar icon. */
+.round .sidebar-icon {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.75;
+}
+
+.sidebar-fill {
+  fill: currentColor;
+  stroke: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+/* History panel open: the side panel in the icon is filled in. */
+.round[aria-expanded='true'] .sidebar-fill {
+  opacity: 0.3;
+}
+
+.round:hover {
+  transform: scale(1.06);
+}
+
+.round:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* The colour picker popover. */
+.picker {
+  position: relative;
+}
+
+.swatches {
+  position: absolute;
+  top: 48px;
+  right: 0;
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  animation: pop 0.15s ease-out both;
+}
+
+.swatch {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.swatch:hover {
+  transform: scale(1.1);
+}
+
+/* The chosen colour gets a ring around it. */
+.swatch[aria-pressed='true'] {
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--ink);
+}
+
+.swatch:focus-visible {
+  outline: 2px solid var(--soft);
+  outline-offset: 4px;
+}
+
+.swatch.blue {
+  background: var(--blue);
+}
+
+.swatch.violet {
+  background: var(--violet);
+}
+
+.swatch.orange {
+  background: var(--orange);
+}
+
+.swatch.green {
+  background: var(--green);
+}
+
+/* Black-and-white look: half dark, half light. */
+.swatch.mono {
+  background: linear-gradient(135deg, var(--mono-light) 50%, var(--mono-dark) 50%);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.swatch.mono[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 1px var(--line), 0 0 0 2px var(--card), 0 0 0 4px var(--ink);
+}
+
+/* Theme switch: a rounded track with a round knob that slides right for dark mode. */
+.switch {
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--line);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.switch[aria-checked='true'] {
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--knob);
+  color: var(--knob-icon);
+  box-shadow: 0 1px 3px var(--knob-shadow), 0 0 0 1px var(--line);
+}
+
+.switch[aria-checked='true'] .switch-knob {
+  transform: translateX(24px);
+}
+
+/* Only slides after a click, so a saved dark theme does not slide on page load. */
+.switch.animate .switch-knob {
+  transition: transform 0.25s ease;
+}
+
+.thread {
+  flex: 1;
+  overflow-y: auto;
+  padding: 72px 20px 8px;
+  /* Text that scrolls up under the floating buttons fades out instead of being covered. */
+  -webkit-mask-image: linear-gradient(transparent 0, #000 64px);
+  mask-image: linear-gradient(transparent 0, #000 64px);
+}
+
+.thread-inner {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* ---------- the stage: welcome screen + input box ---------- */
+
+/* In the chat the stage only holds the input, at the bottom.
+   Wide side padding keeps the input clear of the Next.js dev button at the bottom left. */
+.stage {
+  flex: none;
+  padding: 8px 64px 20px;
+}
+
+/* No messages yet: orb, heading, description, input and examples, centred on the page. */
+.stage.welcome {
+  --mx: 50%;
+  --my: 30%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 72px 64px 24px;
+  /* A soft glow that follows the mouse (--mx / --my are set in page.tsx). */
+  background: radial-gradient(420px circle at var(--mx) var(--my), var(--glow), transparent 70%);
+}
+
+.stage > * {
+  width: 100%;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.welcome-top {
+  text-align: center;
+  color: var(--soft);
+  margin-bottom: 24px;
+}
+
+/* The "Recall" wordmark above the heading, with a small accent dot before it. No animation. */
+.welcome-top .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  animation: none;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+
+.brand::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.welcome-top h2 {
+  margin: 6px 0 8px;
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.welcome-top p {
+  max-width: 440px;
+  margin: 0 auto;
+  font-size: 14px;
+  animation: rise 0.4s 0.65s ease-out both;
+}
+
+.word {
+  display: inline-block;
+  white-space: pre;
+  animation: word-in 0.45s ease-out both;
+}
+
+.examples {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  text-align: left;
+}
+
+.example {
+  display: grid;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-radius: 10px;
+  padding: 0;
+  cursor: pointer;
+  perspective: 900px;
+  animation: rise 0.35s ease-out both;
+}
+
+.example:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Both faces sit in the same grid cell, so the card is as tall as the taller side. */
+.example-inner {
+  display: grid;
+  transform-style: preserve-3d;
+  transition: transform 0.5s ease-in-out;
+}
+
+.example-face {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+.example-face.front {
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.example-face.back {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: transparent;
+  font-weight: 500;
+  transform: rotateY(180deg); /* pre-turned so it reads correctly after the flip */
+}
+
+/* Flip on hover (only on devices that really hover, so phones just send on tap) and on keyboard focus. */
+@media (hover: hover) {
+  .example:hover .example-inner {
+    transform: rotateY(180deg);
+  }
+}
+
+.example:focus-visible .example-inner {
+  transform: rotateY(180deg);
+}
+
+.example:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@media (max-width: 600px) {
+  .examples {
+    grid-template-columns: 1fr;
+  }
+
+  /* On a phone, lift the input above the Next.js dev button instead of using wide side padding. */
+  .stage,
+  .stage.welcome {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .stage {
+    padding-bottom: 68px;
+  }
+}
+
+/* ---------- one message ---------- */
+
+.msg {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 88%;
+  animation: rise 0.28s ease-out both;
+}
+
+.msg.user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+/* Answers use the full width so their cards line up. */
+.msg.assistant {
+  align-self: stretch;
+  max-width: 100%;
+}
+
+.bubble {
+  overflow-wrap: anywhere;
+}
+
+.msg.user .bubble {
+  padding: 8px 14px;
+  border-radius: 12px;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: 1px solid transparent;
+  transition: background-color 0.2s, color 0.2s;
+  white-space: pre-wrap;
+}
+
+/* An answer card. The padding matches the flip card's front, so nothing moves when it finishes. */
+.msg.assistant .bubble,
+.answer-face {
+  padding: 14px 48px 14px 16px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  overflow-wrap: anywhere;
+}
+
+.msg.assistant .bubble {
+}
+
+.msg.failed .bubble {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.bubble > :first-child,
+.answer-face > :first-child {
+  margin-top: 0;
+}
+
+.bubble > :last-child,
+.answer-face > :last-child {
+  margin-bottom: 0;
+}
+
+/* ---------- answer card that flips to "How I answered" ---------- */
+
+/* Its height is set from page.tsx to the side being shown, and animates when it flips. */
+.answer-card {
+  position: relative;
+  width: 100%;
+  perspective: 1200px;
+  border-radius: 14px;
+  transition: height 0.5s ease-in-out;
+}
+
+.answer-inner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transition: transform 0.5s ease-in-out;
+}
+
+.answer-card.flipped .answer-inner {
+  transform: rotateY(180deg);
+}
+
+.answer-face {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* Pre-turned, so after the flip it reads normally and is not mirrored. */
+.answer-face.back {
+  transform: rotateY(180deg);
+}
+
+.answer-face.back h3 {
+  margin: 0 0 10px;
+  color: var(--accent-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.how {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.how-row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.how dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--soft);
+  line-height: 20px;
+}
+
+.how dd {
+  margin: 0;
+  min-width: 0;
+  line-height: 20px;
+}
+
+.how-line {
+  display: block;
+}
+
+/* The round button in the top right corner. It does not turn, so it is never mirrored. */
+.flip-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--soft);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.flip-button:hover {
+  color: var(--ink);
+  border-color: var(--soft);
+}
+
+.flip-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.bubble a,
+.answer-face a,
+.item-detail a {
+  color: var(--accent-text);
+}
+
+.bubble ul,
+.bubble ol,
+.item-detail ul {
+  padding-left: 20px;
+}
+
+.bubble table {
+  border-collapse: collapse;
+  font-size: 14px;
+  display: block;
+  overflow-x: auto;
+}
+
+.bubble th,
+.bubble td {
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+  text-align: left;
+}
+
+/* The blinking bar at the end of an answer that is still being written. */
+.bubble.writing > :last-child::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: blink 0.9s steps(2) infinite;
+}
+
+/* CHANGED / UNCHANGED / COULD NOT VERIFY in re-check answers */
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+  padding: 0 7px;
+  border-radius: 999px;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+.badge.changed {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.badge.unchanged {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.badge.unverified {
+  color: var(--soft);
+  background: var(--unverified-bg);
+  box-shadow: inset 0 0 0 1px var(--unverified-line);
+}
+
+/* Live activity: "Checked memory", "Searching the web", ... */
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  animation: rise 0.2s ease-out both;
+}
+
+.step-icon {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  font-size: 11px;
+  line-height: 12px;
+  text-align: center;
+  color: var(--accent-text);
+  transform: translateY(1px);
+}
+
+/* A running step: the orb, a small spinning ring in the accent colours. */
+.step.running .step-icon {
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.step-label {
+  flex: none;
+  color: var(--ink);
+}
+
+/* The "now" row keeps one height so nothing below it jumps while the label flips. */
+.step.running {
+  height: 21px;
+  align-items: center;
+}
+
+.step.running .step-icon {
+  transform: none;
+}
+
+/* Departure-board flip: the old label turns away, then the new one turns in (175ms + 175ms). */
+.flip {
+  position: relative;
+  display: inline-block;
+  perspective: 300px;
+  line-height: 21px;
+}
+
+.flip-face {
+  display: inline-block;
+  white-space: nowrap;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+.flip-out {
+  position: absolute;
+  left: 0;
+  top: 0;
+  animation: flip-out 0.175s ease-in both;
+}
+
+.flip-in {
+  animation: flip-in 0.175s 0.175s ease-out both;
+}
+
+/* A running step's label shimmers. */
+.step.running .flip-face {
+  color: transparent;
+  background: linear-gradient(90deg, var(--soft) 0%, var(--soft) 40%, var(--ink) 50%, var(--soft) 60%, var(--soft) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmer 1.6s linear infinite;
+}
+
+.step-detail {
+  min-width: 0;
+  color: var(--soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-time {
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--soft);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sources li {
+  animation: pop 0.22s ease-out both;
+}
+
+.sources a {
+  display: block;
+  font-size: 12px;
+  color: var(--soft);
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 10px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.sources a:hover {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.when {
+  font-size: 11px;
+  color: var(--soft);
+}
+
+/* ---------- the input box ---------- */
+
+/* A large rounded pill with the Send button inside on the right. */
+.composer-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 7px 7px 7px 22px;
+  border-radius: 28px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.composer-inner:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.composer textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  font: inherit;
+  line-height: 1.5;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  padding: 8px 0;
+  outline: none;
+  field-sizing: content; /* grows with Shift+Enter lines, where the browser supports it */
+  max-height: 160px;
+}
+
+.composer textarea::placeholder {
+  color: var(--soft);
+  opacity: 1;
+}
+
+.composer button {
+  flex: none;
+  align-self: flex-end;
+  height: 40px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: 0;
+  border-radius: 20px;
+  padding: 0 20px;
+  cursor: pointer;
+  transition: opacity 0.15s, background-color 0.2s, color 0.2s;
+}
+
+.composer button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---------- animations ---------- */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes flip-out {
+  to {
+    transform: rotateX(-90deg);
+    opacity: 0;
+  }
+}
+
+/* Only a start point: when it ends the label has no transform left, so the text stays sharp. */
+@keyframes flip-in {
+  from {
+    transform: rotateX(90deg);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@keyframes word-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(3px);
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Some people switch motion off in their system settings. Respect that. */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  /* No flip: the old label simply disappears and the new one is there at once. */
+  .flip-out {
+    display: none;
+  }
+}

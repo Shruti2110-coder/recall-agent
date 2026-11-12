@@ -1,5 +1,5 @@
 import { getDb } from './db';
-import { formatLocal, resolveTimeRanges, type TimeRange } from './time';
+import { formatLocal, resolveTimeRanges, todayRange, type TimeRange } from './time';
 
 export type Source = { title: string; url: string };
 
@@ -47,7 +47,7 @@ export function recentMessages(limit: number): StoredMessage[] {
 // Every message inside a time range, oldest first.
 export function messagesBetween(range: TimeRange): StoredMessage[] {
   const rows = getDb()
-    .prepare('SELECT * FROM messages WHERE created_at >= ? AND created_at < ? ORDER BY created_at, id LIMIT 30')
+    .prepare('SELECT * FROM messages WHERE created_at >= ? AND created_at < ? ORDER BY created_at, id LIMIT 300')
     .all(range.from.toISOString(), range.to.toISOString()) as Row[];
   return rows.map(toMessage);
 }
@@ -124,6 +124,48 @@ function describe(message: StoredMessage, tzOffsetMinutes: number): string {
   return `[${formatLocal(new Date(message.createdAt), tzOffsetMinutes)}] ${who}: ${text}${links}`;
 }
 
+// A day with only a few messages is shown in full. A busy day is shown as a
+// list of its questions, plus the full exchanges that match the current question.
+const FULL_DAY_LIMIT = 12;
+
+function describeRange(range: TimeRange, messages: StoredMessage[], userText: string, tzOffsetMinutes: number): string {
+  if (messages.length <= FULL_DAY_LIMIT) {
+    return `Messages from ${range.label}:\n${messages.map((m) => describe(m, tzOffsetMinutes)).join('\n')}`;
+  }
+
+  // 1) Every question, once each, with the time it was first asked.
+  const asked = new Map<string, { time: string; count: number }>();
+  for (const m of messages) {
+    if (m.role !== 'user') continue;
+    const entry = asked.get(m.content);
+    if (entry) entry.count++;
+    else asked.set(m.content, { time: formatLocal(new Date(m.createdAt), tzOffsetMinutes), count: 1 });
+  }
+  const list = [...asked.entries()].map(
+    ([text, info], i) => `${i + 1}. [${info.time}] ${text}${info.count > 1 ? ` (asked ${info.count} times)` : ''}`,
+  );
+
+  // 2) Up to three full exchanges that share words with the current question.
+  const keywords = extractKeywords(userText);
+  const matching: StoredMessage[] = [];
+  for (let i = 0; i < messages.length - 1 && matching.length < 6; i++) {
+    const question = messages[i];
+    const answer = messages[i + 1];
+    if (question.role !== 'user' || answer.role !== 'assistant') continue;
+    const text = (question.content + ' ' + answer.content).toLowerCase();
+    if (keywords.some((word) => text.includes(word))) matching.push(question, answer);
+  }
+
+  return (
+    `Messages from ${range.label}: a busy day. The user asked ${asked.size} different questions. ALL of them, in order:\n` +
+    list.join('\n') +
+    (matching.length
+      ? `\n\nFull exchanges from ${range.label} that match the current question:\n` +
+        matching.map((m) => describe(m, tzOffsetMinutes)).join('\n')
+      : '')
+  );
+}
+
 // Build the MEMORY section of the prompt for one new question.
 export function buildMemoryContext(
   userText: string,
@@ -134,11 +176,18 @@ export function buildMemoryContext(
   const sections: string[] = [];
   const notes: string[] = [];
 
-  for (const range of resolveTimeRanges(userText, now, tzOffsetMinutes)) {
+  const ranges = resolveTimeRanges(userText, now, tzOffsetMinutes);
+  // "What did I ask earlier today?" is a memory question too.
+  const asksAboutToday =
+    /\b(today|this morning|this afternoon|this evening|earlier)\b/i.test(userText) &&
+    /\b(ask|asked|say|said|told|tell|talk|talked|discuss|discussed|question|questions)\b/i.test(userText);
+  if (asksAboutToday) ranges.push(todayRange(now, tzOffsetMinutes));
+
+  for (const range of ranges) {
     const messages = messagesBetween(range);
 
     if (messages.length > 0) {
-      sections.push(`Messages from ${range.label}:\n${messages.map((m) => describe(m, tzOffsetMinutes)).join('\n')}`);
+      sections.push(describeRange(range, messages, userText, tzOffsetMinutes));
       notes.push(`${messages.length} message${messages.length === 1 ? '' : 's'} from ${range.label}`);
     } else {
       const nearest = lastQuestionBefore(range.from);
@@ -149,8 +198,10 @@ export function buildMemoryContext(
     }
   }
 
-  // By topic: only when the date lookup found nothing, so the two never compete.
-  const related = notes.length === 0 ? searchByTopic(userText, liveFrom) : [];
+  // By topic: only when the date lookup found nothing, and only for a real
+  // question (three words or more), so a greeting never triggers it.
+  const isRealQuestion = userText.trim().split(/\s+/).length >= 3;
+  const related = notes.length === 0 && isRealQuestion ? searchByTopic(userText, liveFrom) : [];
   if (related.length > 0) {
     sections.push(
       'Earlier conversations that mention similar words (use only if relevant):\n' +

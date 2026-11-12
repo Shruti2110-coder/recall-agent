@@ -41,6 +41,16 @@ export function formatLocal(instant: Date, tzOffsetMinutes: number): string {
   return `${formatDay(localDayNumber(instant, tzOffsetMinutes))}, ${hh}:${mm}`;
 }
 
+// Today so far: from local midnight until now.
+export function todayRange(now: Date, tzOffsetMinutes: number): TimeRange {
+  const today = localDayNumber(now, tzOffsetMinutes);
+  return {
+    from: new Date(today * DAY_MS - tzOffsetMinutes * 60_000),
+    to: now,
+    label: formatDay(today) + ' (today)',
+  };
+}
+
 // Find every past day or period mentioned in the text.
 export function resolveTimeRanges(text: string, now: Date, tzOffsetMinutes: number): TimeRange[] {
   const today = localDayNumber(now, tzOffsetMinutes);

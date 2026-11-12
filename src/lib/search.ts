@@ -25,7 +25,7 @@ async function searchOnce(query: string): Promise<SearchOutcome> {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${process.env.TAVILY_API_KEY}`,
       },
-      body: JSON.stringify({ query, max_results: 5 }),
+      body: JSON.stringify({ query, max_results: 4 }),
       signal: AbortSignal.timeout(8000),
     });
 
@@ -37,7 +37,7 @@ async function searchOnce(query: string): Promise<SearchOutcome> {
     const results: SearchResult[] = (data.results ?? []).map((item: any) => ({
       title: item.title,
       url: item.url,
-      snippet: String(item.content ?? '').slice(0, 1200),
+      snippet: String(item.content ?? '').slice(0, 800),
     }));
 
     // 3) Remember the result for next time.

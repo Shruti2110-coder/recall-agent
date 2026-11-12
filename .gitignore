@@ -3,3 +3,5 @@ node_modules
 .env.local
 data
 .DS_Store
+next-env.d.ts
+*.tsbuildinfo
