@@ -1,5 +1,9 @@
 # Recall
 
+**Live demo:** https://recall-agent-up1e.onrender.com
+(Free server that sleeps when idle, so the first load can take about a minute. Its database resets on restart and is re-filled with two demo conversations.)
+
+
 Recall is a chat agent with one tool, web search, that remembers what you asked and when. Every message is saved in a local SQLite database with its exact time. When you say "last Tuesday", "3 November" or "yesterday", Recall turns that into an exact date range in your timezone and loads what was said then. So you can ask "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?" and it finds the old answer, searches the web for every item in it at once, and marks each one CHANGED, UNCHANGED or COULD NOT VERIFY. While it works, the page shows each step live (checking memory, thinking, searching, reading, writing).
 
 Built with Next.js (App Router) and TypeScript, the Vercel AI SDK, SQLite through Node's built-in `node:sqlite`, and Tavily for search.
