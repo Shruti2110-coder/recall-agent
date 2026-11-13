@@ -21,7 +21,7 @@ For "has it changed since?" questions, the old answer arrives in the prompt with
 - **Code decides what code can decide.** Dates and timezones are worked out in code because models get them wrong. Memory-only questions ("what did I ask yesterday?") have the search tool switched off in code, because a prompt rule alone was not enough.
 - **Ambiguity is settled with data.** On a Wednesday, "last Tuesday" can mean two different days. Both are loaded, and the agent says which date it used.
 - **Honest when empty.** If nothing was stored on a date, the prompt says NONE, so the model has nothing to invent from.
-- **Fast, with a backup.** Models are tried in order: Groq first because it is fastest, then Gemini. If a model fails, hits a rate limit, or is silent for 15 seconds, the next one takes over, as long as no answer text has been shown yet. Restarting is cheap because searches are cached.
+- **Fast, with a backup.** Models are tried in order: Groq first because it is fastest, then Gemini. If a model fails, hits a rate limit, or is silent for 15 seconds, the next one takes over, as long as no answer text has been shown yet. Restarting is cheap because searches are cached. If every model fails, the agent waits a few seconds (as long as the provider asks, up to 8) and tries the list once more, so a short rate limit on a free key does not end the conversation.
 - **Easy to run.** One Next.js app and one SQLite file, using Node's built-in `node:sqlite`. `npm run seed` adds back-dated conversations so memory can be tested on day one.
 
 ## Considered and rejected

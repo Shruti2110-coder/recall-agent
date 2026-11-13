@@ -31,7 +31,11 @@ Put these in `.env.local`. Never commit that file.
 
 If both model keys are set, Groq answers first and Gemini is the backup. Set `PRIMARY_MODEL=google` to swap them.
 
-The backup takes over if the first model fails, hits its rate limit (HTTP 429) or stays silent for 15 seconds, as long as no answer text has appeared yet. This still works after a web search has started: the backup starts the question again, and repeated searches come straight from the 10-minute cache. A rate limit is never retried on the same model; it switches at once. Once answer text has appeared, the model is never switched: if it then stops, you keep the partial text, it is marked as failed, and it is not saved.
+The backup takes over if the first model fails, hits its rate limit (HTTP 429) or stays silent for 15 seconds, as long as no answer text has appeared yet. This still works after a web search has started: the backup starts the question again, and repeated searches come straight from the 10-minute cache. A rate limit is never retried on the same model straight away; it switches at once. Only if every model fails, and no answer text has appeared, does it wait a few seconds and go through the list one more time (two rounds at most). Once answer text has appeared, the model is never switched: if it then stops, you keep the partial text, it is marked as failed, and it is not saved.
+
+### About speed and limits
+
+Free-tier model keys have small per-minute limits on requests and tokens. A question that runs several web searches sends a lot of search text back to the model, so it can go over that limit. To keep this rare, each search keeps at most 3 results and 400 characters per result. When a limit is hit anyway, the agent switches to the backup model and, if that is busy too, waits a few seconds (as long as the provider asks, up to 8 seconds) and tries once more. If you see "The AI model is busy" often, a paid key for either provider removes these limits. You can also pick a different model with `GROQ_MODEL_ID` or `MODEL_ID`.
 
 Groq's model runs with reasoning set to `medium`. On `low` it was the fastest, but it sometimes got dates wrong or labelled a changed price as UNCHANGED. `medium` is a little slower and more careful. If accuracy still matters more than speed, use `PRIMARY_MODEL=google`.
 
@@ -57,7 +61,7 @@ You can also open the history panel (top left), open an old question and click *
 npm test
 ```
 
-The tests use Node's built-in test runner (run through `tsx`). They check the date logic with a fixed "now" and timezone: explicit dates, weekdays, "last Tuesday", "yesterday", "3 days ago", "last week", dates without a year, plus keyword extraction and memory-only question detection. They need no API keys and do not touch the database.
+The tests use Node's built-in test runner (run through `tsx`). `tests/time.test.ts` checks the date logic with a fixed "now" and timezone: explicit dates, weekdays, "last Tuesday", "yesterday", "3 days ago", "last week", dates without a year, plus keyword extraction and memory-only question detection. `tests/agent.test.ts` runs the agent with fake models and a fake search: the switch to the backup model, the second round, the search cache and the size of the search text. They need no API keys and never touch your real database (the agent tests use a temporary folder).
 
 ## Where things are
 
@@ -74,6 +78,6 @@ The tests use Node's built-in test runner (run through `tsx`). They check the da
 | `src/app/api/history/route.ts` | Returns saved messages for the history panel |
 | `src/app/page.tsx`, `src/app/globals.css` | The chat page |
 | `scripts/seed.ts` | Demo data |
-| `tests/time.test.ts` | Tests |
+| `tests/` | Tests for dates, keywords, model order, fallback and retry |
 
 The database lives in `data/agent.db` and is not committed. Delete the `data` folder to start fresh.

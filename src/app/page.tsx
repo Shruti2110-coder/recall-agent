@@ -73,19 +73,54 @@ const EXAMPLES = [
 const HEADLINE = 'Ask it now. Ask about it again next week.'.split(' ');
 
 // Shows `text`. When it changes, the old words flip away and the new ones flip in,
-// like a departure board. `turn` counts changes so each flip restarts its animation.
+// like a departure board (175ms out, then 175ms in).
+// - The old label is drawn on top of the same spot and removed as soon as its flip-out ends,
+//   so there is never more than one label left on the page.
+// - If the text changes again while a flip is still running, that flip is cancelled and only
+//   the newest text is shown, without animation.
+// `turn` counts changes, so each flip gets fresh elements and its animation restarts.
+const FLIP_MS = 350;
+
 function FlipText({ text }: { text: string }) {
-  const [state, setState] = useState({ text, previous: '', turn: 0 });
-  if (state.text !== text) setState({ text, previous: state.text, turn: state.turn + 1 });
+  const [state, setState] = useState({ text, previous: '', turn: 0, flipping: false });
+  if (state.text !== text) {
+    setState(
+      state.flipping
+        ? { text, previous: '', turn: state.turn + 1, flipping: false } // cancel the running flip
+        : { text, previous: state.text, turn: state.turn + 1, flipping: true },
+    );
+  }
+
+  const { turn, flipping } = state;
+  // Backup for when `animationend` never fires (reduced motion, background tab):
+  // end the flip and remove the old label after the full flip time.
+  useEffect(() => {
+    if (!flipping) return;
+    const timer = setTimeout(
+      () => setState((s) => (s.turn === turn ? { ...s, previous: '', flipping: false } : s)),
+      FLIP_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [turn, flipping]);
+
   return (
     <span className="flip">
       {state.previous && (
-        <span key={'out' + state.turn} className="flip-face flip-out" aria-hidden="true">
-          {state.previous}
+        <span
+          key={'out' + turn}
+          className="flip-face flip-out"
+          aria-hidden="true"
+          onAnimationEnd={(event) => {
+            if (event.animationName === 'flip-out') {
+              setState((s) => (s.turn === turn ? { ...s, previous: '' } : s));
+            }
+          }}
+        >
+          <span className="flip-text">{state.previous}</span>
         </span>
       )}
-      <span key={'in' + state.turn} className={state.turn ? 'flip-face flip-in' : 'flip-face'}>
-        {state.text}
+      <span key={'in' + turn} className={flipping ? 'flip-face flip-in' : 'flip-face'}>
+        <span className="flip-text">{state.text}</span>
       </span>
     </span>
   );

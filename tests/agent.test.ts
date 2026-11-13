@@ -62,9 +62,9 @@ const searchReply = (...queries: string[]) =>
     { type: 'tool-call', toolCallId: 'call-1', toolName: 'webSearch', input: JSON.stringify({ queries }) },
     finish('tool-calls'),
   ]);
-const rateLimit = () =>
+const rateLimit = (message = 'Rate limit reached') =>
   new APICallError({
-    message: 'Rate limit reached',
+    message,
     url: 'https://api.example.com',
     requestBodyValues: {},
     statusCode: 429,
@@ -85,12 +85,18 @@ function fakeModel(name: string, replies: Array<ReturnType<typeof stream> | (() 
 
 async function run(question: string, models: Candidate[]) {
   const events: AgentEvent[] = [];
-  await runAgent({ message: question, tzOffsetMinutes: 0 }, (event) => events.push(event), models, 2000);
+  // The wait before a second round: recorded instead of really waiting, so the tests stay fast.
+  const waits: number[] = [];
+  const wait = async (ms: number) => {
+    waits.push(ms);
+  };
+  await runAgent({ message: question, tzOffsetMinutes: 0 }, (event) => events.push(event), models, 2000, wait);
   const steps = events.filter((e): e is StepEvent => e.type === 'step');
   // The last state of each step, as the page would show it.
   const finalSteps = new Map(steps.map((s) => [s.key, s]));
   return {
     events,
+    waits,
     steps,
     finalSteps,
     text: events.flatMap((e) => (e.type === 'text' ? [e.delta] : [])).join(''),
@@ -179,19 +185,134 @@ describe('runAgent fallback', () => {
     const result = await run('What is the latest version of Node.js?', [first.candidate, second.candidate]);
 
     assert.equal(second.model.doStreamCalls.length, 0, 'no restart once text was sent');
+    assert.deepEqual(result.waits, [], 'no second round once text was sent');
     assert.equal(result.text, 'Half an ans');
     assert.ok(result.error, 'an error is reported');
     assert.equal(result.done, undefined, 'a cut-off answer is not saved');
     for (const s of result.finalSteps.values()) assert.equal(s.done, true, `step "${s.key}" is still running`);
   });
 
-  test('every model fails -> one "busy" error', async () => {
+  test('every model fails in both rounds -> one "busy" error, never a third round', async () => {
     const fail = () => {
       throw rateLimit();
     };
-    const result = await run('Any news today?', [fakeModel('first', [fail]).candidate, fakeModel('second', [fail]).candidate]);
+    const first = fakeModel('first', [fail]);
+    const second = fakeModel('second', [fail]);
+    const result = await run('Any news today?', [first.candidate, second.candidate]);
     assert.equal(result.text, '');
     assert.match(result.error && result.error.type === 'error' ? result.error.message : '', /busy or unavailable/);
+    assert.equal(first.model.doStreamCalls.length, 2, 'two rounds');
+    assert.equal(second.model.doStreamCalls.length, 2, 'two rounds');
+    assert.deepEqual(result.waits, [4000], 'one wait, between the rounds');
+    assert.equal(result.finalSteps.get('think')?.detail, 'No model responded');
+    for (const s of result.finalSteps.values()) assert.equal(s.done, true, `step "${s.key}" is still running`);
+  });
+});
+
+// ---------- the second round ----------
+
+describe('runAgent second round', () => {
+  test('both models fail in round one, the first answers in round two', async () => {
+    const fail = () => {
+      throw rateLimit('Rate limit reached for model. Please try again in 7.5s.');
+    };
+    const first = fakeModel('first', [fail, textReply('Here is the answer.')]);
+    const second = fakeModel('second', [fail]);
+
+    const result = await run('What is the capital of Peru?', [first.candidate, second.candidate]);
+
+    assert.equal(result.error, undefined, 'the user gets an answer, not the busy message');
+    assert.equal(result.text, 'Here is the answer.');
+    assert.ok(result.done, 'the answer is saved and sent');
+    assert.equal(first.model.doStreamCalls.length, 2);
+    assert.equal(second.model.doStreamCalls.length, 1, 'round two stops as soon as a model answers');
+    assert.deepEqual(result.waits, [7500], 'the wait follows the "try again in 7.5s" hint');
+
+    // While waiting, the screen says so; afterwards that step is finished.
+    const retry = result.steps.filter((s) => s.key === 'retry');
+    assert.equal(retry[0]?.label, 'All models are busy, trying once more');
+    assert.equal(retry[0]?.done, false);
+    assert.equal(result.finalSteps.get('retry')?.done, true);
+    for (const s of result.finalSteps.values()) assert.equal(s.done, true, `step "${s.key}" is still running`);
+  });
+
+  test('a search repeated in round two comes from the 10-minute cache', async () => {
+    const fail = () => {
+      throw rateLimit();
+    };
+    const first = fakeModel('first', [searchReply('turso pricing'), fail, searchReply('turso pricing'), textReply('Turso: UNCHANGED.')]);
+    const second = fakeModel('second', [fail]);
+    searchRequests = 0;
+
+    const result = await run('Has Turso pricing changed since then?', [first.candidate, second.candidate]);
+
+    assert.equal(result.text, 'Turso: UNCHANGED.');
+    assert.equal(searchRequests, 1, 'Tavily was asked once; round two used the cache');
+  });
+});
+
+describe('retryDelayMs', () => {
+  test('uses the provider hint, capped at 8 seconds, else 4 seconds', async () => {
+    const { retryDelayMs } = await import('../src/lib/agent');
+    assert.equal(retryDelayMs('Rate limit reached. Please try again in 7.5s. Visit ...'), 7500);
+    assert.equal(retryDelayMs('Please try again in 450ms'), 450);
+    assert.equal(retryDelayMs('Please retry in 2s'), 2000);
+    assert.equal(retryDelayMs('Please try again in 20s'), 8000);
+    assert.equal(retryDelayMs('Please try again in 1m2.5s'), 8000);
+    assert.equal(retryDelayMs('The model is experiencing high demand'), 4000);
+    assert.equal(retryDelayMs(''), 4000);
+  });
+});
+
+// ---------- less search text for the model ----------
+
+describe('search size', () => {
+  test('at most 3 results per query and 400 characters per snippet; the model sees only title, url, snippet', async () => {
+    // Tavily returns 5 long results with extra fields.
+    const fakeFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          results: [1, 2, 3, 4, 5].map((n) => ({
+            title: `Result ${n}`,
+            url: `https://example.com/long-${n}`,
+            content: 'x'.repeat(2000),
+            score: 0.9,
+            raw_content: 'y'.repeat(5000),
+          })),
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )) as typeof fetch;
+
+    try {
+      const { webSearch } = await import('../src/lib/search');
+      const [outcome] = await webSearch(['long results test']);
+      assert.equal(outcome.results.length, 3);
+      for (const r of outcome.results) {
+        assert.equal(r.snippet.length, 400);
+        assert.deepEqual(Object.keys(r).sort(), ['snippet', 'title', 'url']);
+      }
+
+      // What actually goes back to the model on its next step.
+      const model = fakeModel('only', [searchReply('long results test'), textReply('Done.')]);
+      const result = await run('What is the latest on long results?', [model.candidate]);
+      assert.equal(result.text, 'Done.');
+      const toolMessage = JSON.stringify(model.model.doStreamCalls[1].prompt.filter((m) => m.role === 'tool'));
+      assert.ok(toolMessage.includes('https://example.com/long-1'));
+      assert.ok(!toolMessage.includes('long-4'), 'no 4th result');
+      assert.ok(!toolMessage.includes('raw_content') && !toolMessage.includes('score'), 'no extra fields');
+      assert.ok(!toolMessage.includes('x'.repeat(401)), 'no snippet longer than 400 characters');
+
+      // The source list is still built from the tool result, exactly as before:
+      // nothing was cited by URL, so it shows the top result of the one query.
+      assert.ok(result.done && result.done.type === 'done');
+      assert.deepEqual(
+        result.done.message.sources.map((s) => s.url),
+        ['https://example.com/long-1'],
+      );
+    } finally {
+      globalThis.fetch = fakeFetch;
+    }
   });
 });
 

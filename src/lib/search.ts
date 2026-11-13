@@ -4,6 +4,20 @@ export type SearchResult = { title: string; url: string; snippet: string };
 export type SearchOutcome = { query: string; results: SearchResult[]; error?: string };
 
 const CACHE_MINUTES = 10;
+// Keep the text sent back to the model small: free-tier model keys have low tokens-per-minute limits,
+// and one question can run up to 6 searches.
+const MAX_RESULTS = 3;
+const MAX_SNIPPET = 400;
+
+// At most 3 results per query, at most 400 characters per snippet, and only these three fields.
+// Also applied to cached results, in case they were saved before these limits existed.
+function trim(results: SearchResult[]): SearchResult[] {
+  return results.slice(0, MAX_RESULTS).map((r) => ({
+    title: r.title,
+    url: r.url,
+    snippet: String(r.snippet ?? '').slice(0, MAX_SNIPPET),
+  }));
+}
 
 async function searchOnce(query: string): Promise<SearchOutcome> {
   const db = getDb();
@@ -14,7 +28,7 @@ async function searchOnce(query: string): Promise<SearchOutcome> {
     | { results: string; fetched_at: string }
     | undefined;
   if (cached && Date.now() - new Date(cached.fetched_at).getTime() < CACHE_MINUTES * 60_000) {
-    return { query, results: JSON.parse(cached.results) };
+    return { query, results: trim(JSON.parse(cached.results)) };
   }
 
   // 2) Otherwise ask Tavily.
@@ -25,7 +39,7 @@ async function searchOnce(query: string): Promise<SearchOutcome> {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${process.env.TAVILY_API_KEY}`,
       },
-      body: JSON.stringify({ query, max_results: 4 }),
+      body: JSON.stringify({ query, max_results: MAX_RESULTS }),
       signal: AbortSignal.timeout(8000),
     });
 
@@ -34,11 +48,9 @@ async function searchOnce(query: string): Promise<SearchOutcome> {
     }
 
     const data = await response.json();
-    const results: SearchResult[] = (data.results ?? []).map((item: any) => ({
-      title: item.title,
-      url: item.url,
-      snippet: String(item.content ?? '').slice(0, 800),
-    }));
+    const results = trim(
+      (data.results ?? []).map((item: any) => ({ title: item.title, url: item.url, snippet: item.content })),
+    );
 
     // 3) Remember the result for next time.
     db.prepare('INSERT OR REPLACE INTO search_cache (query, results, fetched_at) VALUES (?, ?, ?)').run(

@@ -908,6 +908,10 @@ body {
   flex-direction: column;
   gap: 4px;
   font-size: 13px;
+  /* Take the answer's full width, so long detail text is cut with "…" instead of
+     widening the list and pushing the time off screen. */
+  align-self: stretch;
+  min-width: 0;
 }
 
 .step {
@@ -952,12 +956,17 @@ body {
   transform: none;
 }
 
-/* Departure-board flip: the old label turns away, then the new one turns in (175ms + 175ms). */
+/* Departure-board flip: the old label turns away, then the new one turns in (175ms + 175ms).
+   The box has a fixed height and clips anything outside it, so a leaving label can never
+   spill over the detail text next to it. Its width follows the new label (the one in normal flow). */
 .flip {
   position: relative;
   display: inline-block;
-  perspective: 300px;
+  vertical-align: top;
+  height: 21px;
   line-height: 21px;
+  overflow: hidden;
+  perspective: 300px;
 }
 
 .flip-face {
@@ -967,19 +976,25 @@ body {
   backface-visibility: hidden;
 }
 
+/* The leaving label sits on top of the same spot, out of the normal flow.
+   It ends fully hidden (forwards), and page.tsx then removes it. */
 .flip-out {
   position: absolute;
   left: 0;
   top: 0;
-  animation: flip-out 0.175s ease-in both;
+  animation: flip-out 0.175s ease-in forwards;
 }
 
+/* The new label stays hidden until the old one is gone, then turns in. */
 .flip-in {
   animation: flip-in 0.175s 0.175s ease-out both;
 }
 
-/* A running step's label shimmers. */
-.step.running .flip-face {
+/* A running step's label shimmers. This is on the inner .flip-text, NOT on .flip-face:
+   on .flip-face it replaced the flip animations above (a more specific rule wins),
+   so the old label never left and both labels showed on top of each other. */
+.step.running .flip-text {
+  display: inline-block;
   color: transparent;
   background: linear-gradient(90deg, var(--soft) 0%, var(--soft) 40%, var(--ink) 50%, var(--soft) 60%, var(--soft) 100%);
   background-size: 250% 100%;
@@ -1127,6 +1142,7 @@ body {
   to {
     transform: rotateX(-90deg);
     opacity: 0;
+    visibility: hidden;
   }
 }
 
@@ -1134,6 +1150,7 @@ body {
 @keyframes flip-in {
   from {
     transform: rotateX(90deg);
+    opacity: 0;
   }
 }
 

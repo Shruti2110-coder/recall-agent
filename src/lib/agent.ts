@@ -18,6 +18,26 @@ export type AgentEvent =
 // If a model sends nothing at all for this long, we stop waiting for it.
 const SILENCE_LIMIT_MS = 15000;
 
+// If every model fails before any answer text is shown, wait a moment and try the whole list
+// once more. Two rounds in total, never more.
+const ROUNDS = 2;
+const DEFAULT_RETRY_WAIT_MS = 4000;
+const MAX_RETRY_WAIT_MS = 8000;
+
+// How long to wait before the second round. Providers often say how long, e.g. Groq's
+// "Please try again in 7.5s" or "try again in 1m2s". Use that, capped at 8 seconds; otherwise 4 seconds.
+export function retryDelayMs(errorMessage: string): number {
+  const hint = /(?:try again|retry) in\s*(?:(\d+)\s*m(?!s))?\s*(?:([\d.]+)\s*(ms|s))?/i.exec(errorMessage);
+  if (!hint || (!hint[1] && !hint[2])) return DEFAULT_RETRY_WAIT_MS;
+  const minutes = Number(hint[1] ?? 0);
+  const amount = Number(hint[2] ?? 0);
+  const ms = minutes * 60_000 + (hint[3]?.toLowerCase() === 'ms' ? amount : amount * 1000);
+  if (!Number.isFinite(ms) || ms <= 0) return DEFAULT_RETRY_WAIT_MS;
+  return Math.min(Math.ceil(ms), MAX_RETRY_WAIT_MS);
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 // True when the user only wants to be reminded of something already said.
 // For those questions the search tool is switched off, so the model cannot wander.
 export function isRecallOnly(text: string): boolean {
@@ -32,6 +52,7 @@ export async function runAgent(
   send: (event: AgentEvent) => void,
   models: Candidate[] = getModels(),
   silenceLimitMs: number = SILENCE_LIMIT_MS,
+  wait: (ms: number) => Promise<void> = sleep, // tests pass a tiny wait
 ): Promise<void> {
   const started = Date.now();
   const log = (label: string) => console.log(`[chat] ${label} at ${Date.now() - started}ms`);
@@ -85,102 +106,124 @@ export async function runAgent(
   //    as long as NO answer text has reached the browser yet. A search does not block this:
   //    the next model starts the question again, and repeated searches come from the 10-minute cache.
   //    A rate limit (HTTP 429) is a failure like any other: maxRetries is 0, so we never wait on the same model.
+  //    If EVERY model fails and no answer text was sent, wait and go through the list once more.
   let failedName = ''; // the model that failed before this one, if any
-  for (const candidate of models) {
-    searched = false;
-    step(
-      'think',
-      failedName ? 'Thinking (switched to backup)' : 'Thinking',
-      false,
-      failedName ? `${failedName} failed, trying ${candidate.name}` : candidate.name,
-    );
-    const abort = new AbortController();
-    let timer = setTimeout(() => abort.abort(), silenceLimitMs);
-    const stillAlive = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => abort.abort(), silenceLimitMs);
-    };
+  for (let round = 1; round <= ROUNDS && !answer; round++) {
+    if (round > 1) {
+      const ms = retryDelayMs(failure);
+      log(`every model failed, trying once more in ${ms}ms`);
+      // Its own step, so it shows on screen as it is (the page shows the Thinking step's label only).
+      step('retry', 'All models are busy, trying once more', false);
+      await wait(ms);
+      step('retry', 'Tried once more', true);
+      failedName = ''; // a new round starts with the first model again
+    }
+    for (const candidate of models) {
+      searched = false;
+      step(
+        'think',
+        failedName ? 'Thinking (switched to backup)' : 'Thinking',
+        false,
+        failedName ? `${failedName} failed, trying ${candidate.name}` : candidate.name,
+      );
+      const abort = new AbortController();
+      let timer = setTimeout(() => abort.abort(), silenceLimitMs);
+      const stillAlive = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => abort.abort(), silenceLimitMs);
+      };
 
-    try {
-      const result = streamText({
-        model: candidate.model,
-        instructions,
-        messages,
-        maxRetries: 0,
-        abortSignal: abort.signal,
-        providerOptions: candidate.providerOptions as never,
-        tools: {
-          webSearch: tool({
-            description: 'Search the live web. Pass every query you need in one call; they run in parallel.',
-            inputSchema: z.object({
-              queries: z.array(z.string()).min(1).max(6),
+      try {
+        const result = streamText({
+          model: candidate.model,
+          instructions,
+          messages,
+          maxRetries: 0,
+          abortSignal: abort.signal,
+          providerOptions: candidate.providerOptions as never,
+          tools: {
+            webSearch: tool({
+              description: 'Search the live web. Pass every query you need in one call; they run in parallel.',
+              inputSchema: z.object({
+                queries: z.array(z.string()).min(1).max(6),
+              }),
+              execute: async ({ queries }) => webSearch(queries),
+              // What goes back to the model: for each query, only title, url and snippet per result.
+              // The full output still reaches the tool-result part below, which builds the source list.
+              toModelOutput: ({ output }) => ({
+                type: 'json',
+                value: (output as SearchOutcome[]).map((outcome) => ({
+                  query: outcome.query,
+                  results: outcome.results.map(({ title, url, snippet }) => ({ title, url, snippet })),
+                  ...(outcome.error ? { error: outcome.error } : {}),
+                })),
+              }),
             }),
-            execute: async ({ queries }) => webSearch(queries),
-          }),
-        },
-        toolChoice: recallOnly ? 'none' : 'auto',
-        stopWhen: isStepCount(5),
-        // Errors also arrive as 'error' parts below, where we log one line and switch models.
-        // Without this the SDK prints a full stack trace for every failure.
-        onError: () => {},
-      });
+          },
+          toolChoice: recallOnly ? 'none' : 'auto',
+          stopWhen: isStepCount(5),
+          // Errors also arrive as 'error' parts below, where we log one line and switch models.
+          // Without this the SDK prints a full stack trace for every failure.
+          onError: () => {},
+        });
 
-      for await (const part of result.stream) {
-        stillAlive();
+        for await (const part of result.stream) {
+          stillAlive();
 
-        if (part.type === 'text-delta') {
-          if (!answer) {
-            log(`first words (${candidate.name})`);
+          if (part.type === 'text-delta') {
+            if (!answer) {
+              log(`first words (${candidate.name})`);
+              finish('think');
+              finish('read');
+              step('write', 'Writing the answer', false);
+            }
+            answer += part.text;
+            send({ type: 'text', delta: part.text });
+          } else if (part.type === 'tool-call') {
+            const { queries } = part.input as { queries: string[] };
+            log('search requested: ' + queries.join(' | '));
             finish('think');
             finish('read');
-            step('write', 'Writing the answer', false);
+            step('search', 'Searching the web', false, queries.join(' · '));
+          } else if (part.type === 'tool-result') {
+            log('search finished');
+            // This attempt searched, so its sources replace any from a failed earlier attempt.
+            if (!searched) {
+              searched = true;
+              sources = new Map();
+              topPerQuery = new Map();
+            }
+            const outcomes = part.output as SearchOutcome[];
+            const found = outcomes.reduce((sum, outcome) => sum + outcome.results.length, 0);
+            const searches = outcomes.length === 1 ? '1 search' : `${outcomes.length} searches at once`;
+            step('search', 'Searched the web', true, `${searches}, ${found} result${found === 1 ? '' : 's'}`);
+            step('read', 'Reading the results', false);
+            for (const outcome of outcomes) {
+              for (const r of outcome.results) sources.set(r.url, { title: r.title, url: r.url });
+              const best = outcome.results[0];
+              if (best) topPerQuery.set(best.url, { title: best.title, url: best.url });
+            }
+          } else if (part.type === 'error') {
+            throw part.error;
           }
-          answer += part.text;
-          send({ type: 'text', delta: part.text });
-        } else if (part.type === 'tool-call') {
-          const { queries } = part.input as { queries: string[] };
-          log('search requested: ' + queries.join(' | '));
-          finish('think');
-          finish('read');
-          step('search', 'Searching the web', false, queries.join(' · '));
-        } else if (part.type === 'tool-result') {
-          log('search finished');
-          // This attempt searched, so its sources replace any from a failed earlier attempt.
-          if (!searched) {
-            searched = true;
-            sources = new Map();
-            topPerQuery = new Map();
-          }
-          const outcomes = part.output as SearchOutcome[];
-          const found = outcomes.reduce((sum, outcome) => sum + outcome.results.length, 0);
-          const searches = outcomes.length === 1 ? '1 search' : `${outcomes.length} searches at once`;
-          step('search', 'Searched the web', true, `${searches}, ${found} result${found === 1 ? '' : 's'}`);
-          step('read', 'Reading the results', false);
-          for (const outcome of outcomes) {
-            for (const r of outcome.results) sources.set(r.url, { title: r.title, url: r.url });
-            const best = outcome.results[0];
-            if (best) topPerQuery.set(best.url, { title: best.title, url: best.url });
-          }
-        } else if (part.type === 'error') {
-          throw part.error;
         }
-      }
 
-      clearTimeout(timer);
-      if (abort.signal.aborted) throw new Error('the model stayed silent for too long');
-      if (answer) {
-        failure = '';
-        break; // success: stop trying models
+        clearTimeout(timer);
+        if (abort.signal.aborted) throw new Error('the model stayed silent for too long');
+        if (answer) {
+          failure = '';
+          break; // success: stop trying models
+        }
+        throw new Error('the model returned no text');
+      } catch (error) {
+        clearTimeout(timer);
+        failure = abort.signal.aborted ? 'the model stayed silent for too long' : error instanceof Error ? error.message : String(error);
+        log(`${candidate.name} failed: ${failure.slice(0, 120)}`);
+        failedName = candidate.name;
+        // Close this attempt's running steps, so nothing spins forever.
+        for (const key of ['think', 'search', 'read']) finish(key);
+        if (answer) break; // answer text already reached the browser, so we cannot start over with another model
       }
-      throw new Error('the model returned no text');
-    } catch (error) {
-      clearTimeout(timer);
-      failure = abort.signal.aborted ? 'the model stayed silent for too long' : error instanceof Error ? error.message : String(error);
-      log(`${candidate.name} failed: ${failure.slice(0, 120)}`);
-      failedName = candidate.name;
-      // Close this attempt's running steps, so nothing spins forever.
-      for (const key of ['think', 'search', 'read']) finish(key);
-      if (answer) break; // answer text already reached the browser, so we cannot start over with another model
     }
   }
 
